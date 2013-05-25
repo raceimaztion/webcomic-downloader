@@ -8,6 +8,7 @@ import pygtk
 pygtk.require('2.0')
 import gtk
 import gobject
+import pango
 
 import os
 import time
@@ -34,12 +35,13 @@ CREATE TABLE IF NOT EXISTS Webcomics (
 
 def wget(url, folder=None):
 	if folder == None:
-		os.system('wget "%s"'%url)
+		result = os.system('wget "%s"'%url)
 	else:
-		os.system('wget -P "%s" "%s"'%(folder, url))
+		result = os.system('wget -P "%s" "%s"'%(folder, url))
+	return (result==0)
 
 def grab_strip(pattern, number, folder=None):
-	wget(pattern%number, folder)
+	return wget(pattern%number, folder)
 
 #
 # Database-manipulating functions:
@@ -89,15 +91,86 @@ def db_list_webcomics():
 
 class AddWebcomic(gtk.Dialog):
 	def __init__(self, parent=None):
-		gtk.Dialog.__init__(self, 'Webcomic Downloader - Add a webcomic', parent, gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+		gtk.Dialog.__init__(self, 'Webcomic Downloader - Add a webcomic',
+					parent, gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
 					('_Save', gtk.RESPONSE_ACCEPT, '_Cancel', gtk.RESPONSE_REJECT))
-
+		
 		# Set dialog-level stuff
 		self.set_default_response(gtk.RESPONSE_ACCEPT)
+		
+		# Create the Entry widgets
+		self.entry_name = gtk.Entry()
+		self.entry_folder = gtk.Entry()
+		self.entry_pattern = gtk.Entry()
+		
+		# Create the Labels
+		self.label_name = gtk.Label('The webcomic\'s name:')
+		self.label_folder = gtk.Label('Folder name to put the comics in:')
+		self.label_pattern = gtk.Label('URL Pattern of the webcomic\'s images:')
+		
+		# Prepare for alternate styles:
+		for label in [self.label_name, self.label_folder, self.label_pattern]:
+			label.set_markup('<b>'+label.get_text()+'</b>')
+			label.set_use_markup(False)
+		
+		# Pack the widgets into a grid
+		grid = gtk.Table(3, 2, False)
+		grid.attach(self.label_name, 0,1, 0,1, xoptions=gtk.FILL, yoptions=gtk.FILL)
+		grid.attach(self.label_folder, 0,1, 1,2, xoptions=gtk.FILL, yoptions=gtk.FILL)
+		grid.attach(self.label_pattern, 0,1, 2,3, xoptions=gtk.FILL, yoptions=gtk.FILL)
+		grid.attach(self.entry_name, 1,2, 0,1, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
+		grid.attach(self.entry_folder, 1,2, 1,2, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
+		grid.attach(self.entry_pattern, 1,2, 2,3, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
+		
+		self.get_content_area().add(grid)
+		grid.show_all()
+		
+		# Hook up the callbacks
 		self.connect('response', self.callback_response)
-
-		# TODO: Lay out the widgets in the dialog
-
+		self.entry_name.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
+		self.entry_folder.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
+		self.entry_pattern.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
+	
+	def callback_response(self, widget, data=None):
+		if data == gtk.RESPONSE_ACCEPT:
+			# TODO: Make sure there's data where it needs to be.
+			# Need to have all fields filled in.
+			filled = True
+			if self.entry_name.get_text() == '':
+				filled = False
+				self.label_name.set_use_markup(True)
+			if self.entry_folder.get_text() == '':
+				filled = False
+				self.label_folder.set_use_markup(True)
+			if self.entry_pattern.get_text() == '':
+				filled = False
+				self.label_pattern.set_use_markup(True)
+			
+			if filled:
+				# Allow this signal to propogate further
+				pass
+			else:
+				# Stop us from going further
+				gobject.timeout_add(2000, self.callback_response, 'timeout')
+				return False
+		
+		elif data == gtk.RESPONSE_REJECT:
+			# Clear the dialog
+			self.entry_name.set_text('')
+			self.entry_folder.set_text('')
+			self.entry_pattern.set_text('')
+		
+		else:
+			for label in [self.label_name, self.label_folder, self.label_pattern]:
+				label.set_use_markup(False)
+			return False
+	
+	
+	def run(self):
+		gtk.Dialog.run(self)
+		
+		# Do clean-up
+		self.hide()
 #
 # Main Window:
 #
@@ -163,6 +236,7 @@ class Downloader(gtk.Window):
 	def callback_new(self, widget, data):
 		# TODO: Show the Add a Webcomic dialog
 		# TODO: If the dialog returned True, reload the list
+		a.run()
 		pass
 
 	def callback_open(self, widget, data):
@@ -175,6 +249,7 @@ db_init()
 
 d = Downloader()
 d.show_all()
+a = AddWebcomic()
 
 gtk.main()
 
