@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 #
 # Webcomic downloading tool
@@ -12,7 +12,9 @@ import pango
 
 import os
 import time
+from datetime import date, datetime, timedelta
 import sqlite3
+import re
 
 DATABASE_FILE = '.webcomic-list.sqlite3'
 
@@ -40,8 +42,70 @@ def wget(url, folder=None):
 		result = os.system('wget -P "%s" "%s"'%(folder, url))
 	return (result==0)
 
-def grab_strip(pattern, number, folder=None):
+def grab_strip_by_number(pattern, number, folder=None):
 	return wget(pattern%number, folder)
+
+def grab_strip_by_date(pattern, date, folder=None):
+	url = pattern
+	for rep in [('%y', str(date.year)),
+				('%4y', str(date.year)),
+				('%2y', str(date.year)[2:4]),
+				('%m', '%02d'%date.month),
+				('%d', '%02d'%date.day)]:
+		url = url.replace(rep[0], rep[1])
+	return wget(url, folder)
+
+def get_filename(url):
+	"""Return the name of a file given its URL."""
+	return url[1 + url.rfind('/'):]
+
+#
+# Date-related control functions
+#
+
+def date_get_latest_stored(folder, pattern):
+	"""Given the folder to look in and the URL pattern, return the latest stored strip's date."""
+	# Determine the pattern the files will be named with
+	name_pattern = get_filename(pattern)
+	# Build the matcher regex
+	name_re = '^'+name_pattern+'$'
+	for rep in [('%y', '([0-9]{4})'), ('%4y', '([0-9]{4})'), ('%2y', '([0-9]{2})'), ('%m', '([0-9]{2})'), ('%d', '([0-9]{2})'), ('.', '\\.')]:
+		name_re = name_re.replace(rep[0], rep[1])
+	# Build the replacer regex
+	name_sub = ''
+	# TODO: Figure out how to grab values from the sub()ed results
+	
+	# Get a list of all the files downloaded thus far
+	file_list = os.listdir(folder)
+	
+	# Sort them so the latest ones are first
+	file_list.sort(reverse=True)
+	
+	# Determine the latest file's name
+	latest = None
+	for f in file_list:
+		if None != re.matches(name_re):
+			latest = f
+			break
+	
+	if latest = None:
+		return None
+	else:
+		
+
+#
+# Numeric-related control functions
+#
+
+#
+# Date iteration generator
+#
+
+def date_iterator(startDate, endDate, delta=timedelta(days=1)):
+	currentDate = startDate
+	while currentDate < endDate:
+		yield currentDate
+		currentDate += delta
 
 #
 # Database-manipulating functions:
@@ -53,7 +117,7 @@ def db_init():
 	global db
 	db = sqlite3.connect(DATABASE_FILE, isolation_level=None)
 	if db == None:
-		print 'Failed to load database!'
+		print('Failed to load database!')
 		exit(1)
 	cursor = db.cursor()
 	cursor.execute("SELECT tbl_name FROM sqlite_master WHERE type='table' ORDER BY tbl_name;")
@@ -86,6 +150,19 @@ def db_list_webcomics():
 	return cursor.fetchall()
 
 #
+# Generally-useful gui functions
+#
+
+def label_bold(label):
+	if not label.get_use_markup():
+		label.set_markup('<b>'+label.get_text()+'</b>')
+
+def label_unbold(label):
+	if label.get_use_markup():
+		label.set_text(label.get_text())
+		label.set_use_markup(False)
+
+#
 # Add a webcomic dialog:
 #
 
@@ -108,10 +185,9 @@ class AddWebcomic(gtk.Dialog):
 		self.label_folder = gtk.Label('Folder name to put the comics in:')
 		self.label_pattern = gtk.Label('URL Pattern of the webcomic\'s images:')
 		
-		# Prepare for alternate styles:
-		for label in [self.label_name, self.label_folder, self.label_pattern]:
-			label.set_markup('<b>'+label.get_text()+'</b>')
-			label.set_use_markup(False)
+		# Create the radio buttons
+		self.radio_numeric = gtk.RadioButton(label='Numeric')
+		self.radio_datewise = gtk.RadioButton(group=self.radio_numeric, label='Date-wise')
 		
 		# Pack the widgets into a grid
 		grid = gtk.Table(3, 2, False)
@@ -122,36 +198,29 @@ class AddWebcomic(gtk.Dialog):
 		grid.attach(self.entry_folder, 1,2, 1,2, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
 		grid.attach(self.entry_pattern, 1,2, 2,3, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
 		
-		self.get_content_area().add(grid)
-		grid.show_all()
+		# Pack the radio buttons together
+		box = gtk.HBox(homogeneous=True)
+		box.pack_start(self.radio_numeric, True, True, 0)
+		box.pack_start(self.radio_datewise, True, True, 0)
+		
+		# Pack the layouts together
+		vbox = gtk.VBox()
+		vbox.pack_start(grid, True, True, 0)
+		vbox.pack_start(box, True, True, 0)
+		
+		self.get_content_area().add(vbox)
+		vbox.show_all()
 		
 		# Hook up the callbacks
 		self.connect('response', self.callback_response)
-		self.entry_name.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
-		self.entry_folder.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
-		self.entry_pattern.connect('activate', self.callback_response, gtk.RESPONSE_ACCEPT)
+		self.entry_name.connect('activate', self.callback_trigger, gtk.RESPONSE_ACCEPT)
+		self.entry_folder.connect('activate', self.callback_trigger, gtk.RESPONSE_ACCEPT)
+		self.entry_pattern.connect('activate', self.callback_trigger, gtk.RESPONSE_ACCEPT)
 	
 	def callback_response(self, widget, data=None):
 		if data == gtk.RESPONSE_ACCEPT:
-			# TODO: Make sure there's data where it needs to be.
 			# Need to have all fields filled in.
-			filled = True
-			if self.entry_name.get_text() == '':
-				filled = False
-				self.label_name.set_use_markup(True)
-			if self.entry_folder.get_text() == '':
-				filled = False
-				self.label_folder.set_use_markup(True)
-			if self.entry_pattern.get_text() == '':
-				filled = False
-				self.label_pattern.set_use_markup(True)
-			
-			if filled:
-				# Allow this signal to propogate further
-				pass
-			else:
-				# Stop us from going further
-				gobject.timeout_add(2000, self.callback_response, 'timeout')
+			if not self.check_values():
 				return False
 		
 		elif data == gtk.RESPONSE_REJECT:
@@ -162,15 +231,48 @@ class AddWebcomic(gtk.Dialog):
 		
 		else:
 			for label in [self.label_name, self.label_folder, self.label_pattern]:
-				label.set_use_markup(False)
+				label_unbold(label)
 			return False
 	
+	def callback_trigger(self, widget, data=None):
+		if self.check_values():
+			self.response(gtk.RESPONSE_ACCEPT)
+	
+	def check_values(self):
+		filled = True
+		if self.entry_name.get_text() == '':
+			filled = False
+			label_bold(self.label_name)
+		if self.entry_folder.get_text() == '':
+			filled = False
+			label_bold(self.label_folder)
+		if self.entry_pattern.get_text() == '':
+			filled = False
+			label_bold(self.label_pattern)
+		
+		if not filled:
+			gobject.timeout_add(5000, self.callback_response, 'timeout')
+		
+		return filled
 	
 	def run(self):
-		gtk.Dialog.run(self)
+		result = gtk.Dialog.run(self)
+		
+		# If the OK button was pressed, put the data into the database
+		if result == gtk.RESPONSE_ACCEPT:
+			if self.radio_numeric.get_active():
+				db_add_webcomic(self.entry_name.get_text(),
+								self.entry_folder.get_text(),
+								'n: '+self.entry_pattern.get_text())
+			else:
+				db_add_webcomic(self.entry_name.get_text(),
+								self.entry_folder.get_text(),
+								'd: '+self.entry_pattern.get_text())
 		
 		# Do clean-up
 		self.hide()
+		
+		return result
 #
 # Main Window:
 #
@@ -180,13 +282,17 @@ class Downloader(gtk.Window):
 
 		# Set window-level stuff
 		self.set_title('Webcomic Downloader - v1')
-		self.set_geometry_hints(min_width=300, min_height=300)
+		self.set_geometry_hints(min_width=600, min_height=300)
 		self.connect('destroy', gtk.main_quit)
 
 		# Create the toolbar
 		self.button_new = gtk.ToolButton(gtk.STOCK_NEW)
 		self.button_open = gtk.ToolButton(gtk.STOCK_OPEN)
 		self.button_delete = gtk.ToolButton(gtk.STOCK_DELETE)
+		
+		self.button_new.set_tooltip_text('Add a new Webcomic to the list')
+		self.button_open.set_tooltip_text('Download a Webcomic')
+		self.button_delete.set_tooltip_text('Delete a Webcomic')
 
 		self.button_new.connect('clicked', self.callback_new, 'new')
 		self.button_open.connect('clicked', self.callback_open, 'open')
@@ -234,16 +340,20 @@ class Downloader(gtk.Window):
 			self.list_data.append(comic)
 
 	def callback_new(self, widget, data):
-		# TODO: Show the Add a Webcomic dialog
-		# TODO: If the dialog returned True, reload the list
-		a.run()
-		pass
+		# Show the Add a Webcomic dialog
+		if a.run():
+			# If the dialog returned True, reload the list
+			self.reload_webcomic_list()
 
 	def callback_open(self, widget, data):
 		pass
 
 	def callback_delete(self, widget, data):
-		pass
+		(model, pathlist) = self.list_view.get_selection().get_selected_rows()
+		for path in pathlist:
+			tree_iter = model.get_iter(path)
+			print('Deleting webcomic with ID %d'%(model.get_value(tree_iter, 0)))
+			#db_delete_webcomic(model.get_value(tree_iter, 0))
 
 db_init()
 
