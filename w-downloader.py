@@ -15,8 +15,17 @@ import time
 from datetime import date, datetime, timedelta
 import sqlite3
 import re
+import traceback
 
 DATABASE_FILE = '.webcomic-list.sqlite3'
+ALL_IMAGE_TYPES = ['.gif', '.png', '.jpg']
+
+TODO = """
+TODO:
+	Allow some method for duplicating and/or editing a Webcomic's info.
+	Complete support for date-wise image naming.
+	Add support for stopping the downloader.
+"""
 
 #
 # The database table specifications
@@ -27,7 +36,8 @@ CREATE TABLE IF NOT EXISTS Webcomics (
 	name TEXT NOT NULL,
 	folder TEXT NOT NULL,
 	pattern TEXT NOT NULL,
-	date_added TEXT DEFAULT (CURRENT_TIMESTAMP)
+	date_added TEXT DEFAULT (CURRENT_TIMESTAMP),
+	skipsafe INTEGER DEFAULT (5)
 );
 """
 
@@ -88,14 +98,89 @@ def date_get_latest_stored(folder, pattern):
 			latest = f
 			break
 	
-	if latest = None:
+	if latest == None:
 		return None
 	else:
-		
+		pass
 
 #
 # Numeric-related control functions
 #
+
+def numeric_get_latest_stored(folder, pattern, check_all_formats=False):
+	"""Given the folder to look in and the URL pattern, return the latest stored strip's number."""
+	name_pattern = get_filename(pattern)
+	name_re = '^' + re.sub('%([0-9])+d', '([0-9]{\g<1>,})', name_pattern.replace('%d', '([0-9]+)').replace('.', '\\.'))
+	name_re = re.sub('{0+', '{', name_re)
+	
+	if check_all_formats:
+		print('checking all formats.')
+		name_re += '\\'
+	else:
+		print('Only one format to check.')
+		name_re += '$'
+	
+	# Debugging:
+	print('name pattern: '+name_pattern)
+	print('name_re: '+name_re)
+	
+	file_list = os.listdir(folder)
+	file_list.sort(reverse=True)
+	
+	latest = None
+	for f in file_list:
+		if check_all_formats:
+			for format in ALL_IMAGE_TYPES:
+				if None != re.match(name_re + format + '$', f):
+					latest = f
+					break
+			if latest != None:
+				break
+		else:
+			if None != re.match(name_re, f):
+				latest = f
+				break
+	
+	if latest == None:
+		print 'Found no matching webcomic images!'
+		return False
+	else:
+		if check_all_formats:
+			return int(re.sub(name_re + '..*', '\g<1>', latest), 10)
+		else:
+			return int(re.sub(name_re, '\g<1>', latest), 10)
+
+def numeric_download(name, folder, pattern, skipsafe, check_all=False):
+	"""Given the Webcomic data, grab the webcomic images sequentially.
+		Yields after each download attempt returning (was_success, strip_number) for each."""
+	last = numeric_get_latest_stored(folder, pattern, check_all)
+	if last == False:
+		yield (None, 'Failed to find any strips matching the given pattern!')
+		return
+	
+	print('Downloading strip images for %s.'%name)
+	print('Last downloaded strip was #%d.'%last)
+	
+	yield (None, last)
+	
+	#test="""
+	number = last + 1
+	
+	while skipsafe > 0:
+		if check_all:
+			for format in ALL_IMAGE_TYPES:
+				result = grab_strip_by_number(pattern + format, number, folder)
+				if result:
+					break
+				else:
+					time.sleep(0.5)
+		else:
+			result = grab_strip_by_number(pattern, number, folder)
+		if not result:
+			skipsafe -= 1
+		yield (result, number)
+		number += 1
+	#"""
 
 #
 # Date iteration generator
@@ -132,10 +217,13 @@ def db_count_webcomics():
 	cursor.execute('SELECT COUNT(id) FROM Webcomics;')
 	return cursor.fetchone()[0]
 
-def db_add_webcomic(name, folder, pattern):
+def db_add_webcomic(name, folder, pattern, skipsafe=None):
 	global db
 	cursor = db.cursor()
-	cursor.execute('INSERT INTO Webcomics (name, folder, pattern) VALUES ("%s", "%s", "%s");'%(name, folder, pattern))
+	if skipsafe != None and type(skipsafe) == int:
+		cursor.execute('INSERT INTO Webcomics (name, folder, pattern, skipsafe) VALUES ("%s", "%s", "%s", %d);'%(name, folder, pattern, skipsafe))
+	else:
+		cursor.execute('INSERT INTO Webcomics (name, folder, pattern) VALUES ("%s", "%s", "%s");'%(name, folder, pattern))
 	return cursor.lastrowid
 
 def db_delete_webcomic(webcomic_id):
@@ -146,7 +234,7 @@ def db_delete_webcomic(webcomic_id):
 def db_list_webcomics():
 	global db
 	cursor = db.cursor()
-	cursor.execute('SELECT id, name, folder, pattern, date_added FROM Webcomics ORDER BY id;')
+	cursor.execute('SELECT id, name, folder, pattern, date_added, skipsafe FROM Webcomics ORDER BY id;')
 	return cursor.fetchall()
 
 #
@@ -179,24 +267,32 @@ class AddWebcomic(gtk.Dialog):
 		self.entry_name = gtk.Entry()
 		self.entry_folder = gtk.Entry()
 		self.entry_pattern = gtk.Entry()
+		self.spin_skipsafe = gtk.SpinButton(gtk.Adjustment(value=3, lower=0, upper=10, step_incr=1))
+		self.check_all_types = gtk.CheckButton(label='.gif, .png, .jpg')
 		
 		# Create the Labels
 		self.label_name = gtk.Label('The webcomic\'s name:')
 		self.label_folder = gtk.Label('Folder name to put the comics in:')
 		self.label_pattern = gtk.Label('URL Pattern of the webcomic\'s images:')
+		self.label_skipsafe = gtk.Label('Number of missed strips before stopping:')
+		self.label_check_all = gtk.Label('Webcomic uses a variety of image types:')
 		
 		# Create the radio buttons
 		self.radio_numeric = gtk.RadioButton(label='Numeric')
 		self.radio_datewise = gtk.RadioButton(group=self.radio_numeric, label='Date-wise')
 		
 		# Pack the widgets into a grid
-		grid = gtk.Table(3, 2, False)
+		grid = gtk.Table(5, 2, False)
 		grid.attach(self.label_name, 0,1, 0,1, xoptions=gtk.FILL, yoptions=gtk.FILL)
 		grid.attach(self.label_folder, 0,1, 1,2, xoptions=gtk.FILL, yoptions=gtk.FILL)
 		grid.attach(self.label_pattern, 0,1, 2,3, xoptions=gtk.FILL, yoptions=gtk.FILL)
+		grid.attach(self.label_skipsafe, 0,1, 3,4, xoptions=gtk.FILL, yoptions=gtk.FILL)
+		grid.attach(self.label_check_all, 0,1, 4,5, xoptions=gtk.FILL, yoptions=gtk.FILL)
 		grid.attach(self.entry_name, 1,2, 0,1, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
 		grid.attach(self.entry_folder, 1,2, 1,2, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
 		grid.attach(self.entry_pattern, 1,2, 2,3, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
+		grid.attach(self.spin_skipsafe, 1,2, 3,4, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
+		grid.attach(self.check_all_types, 1,2, 4,5, xoptions=gtk.FILL|gtk.EXPAND, yoptions=gtk.FILL)
 		
 		# Pack the radio buttons together
 		box = gtk.HBox(homogeneous=True)
@@ -222,12 +318,6 @@ class AddWebcomic(gtk.Dialog):
 			# Need to have all fields filled in.
 			if not self.check_values():
 				return False
-		
-		elif data == gtk.RESPONSE_REJECT:
-			# Clear the dialog
-			self.entry_name.set_text('')
-			self.entry_folder.set_text('')
-			self.entry_pattern.set_text('')
 		
 		else:
 			for label in [self.label_name, self.label_folder, self.label_pattern]:
@@ -256,27 +346,127 @@ class AddWebcomic(gtk.Dialog):
 		return filled
 	
 	def run(self):
+		# Clear the dialog
+		self.entry_name.set_text('')
+		self.entry_folder.set_text('')
+		self.entry_pattern.set_text('')
+		self.spin_skipsafe.set_value(3)
+		self.check_all_types.set_active(False)
+		
 		result = gtk.Dialog.run(self)
 		
 		# If the OK button was pressed, put the data into the database
 		if result == gtk.RESPONSE_ACCEPT:
+			prefix = ''
 			if self.radio_numeric.get_active():
-				db_add_webcomic(self.entry_name.get_text(),
-								self.entry_folder.get_text(),
-								'n: '+self.entry_pattern.get_text())
+				if self.check_all_types.get_active():
+					prefix = 'na:'
+				else:
+					prefix = 'n: '
 			else:
-				db_add_webcomic(self.entry_name.get_text(),
-								self.entry_folder.get_text(),
-								'd: '+self.entry_pattern.get_text())
+				if self.check_all_types.get_active():
+					prefix = 'pa:'
+				else:
+					prefix = 'p: '
+			
+			db_add_webcomic(self.entry_name.get_text(),
+							self.entry_folder.get_text(),
+							prefix + self.entry_pattern.get_text())
 		
 		# Do clean-up
 		self.hide()
 		
 		return result
+
+#
+# Strip download dialog
+#
+
+class DownloadStrips(gtk.Dialog):
+	def __init__(self, parent=None):
+		gtk.Dialog.__init__(self, 'Webcomic Downloader - Downloading strips', parent, gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT)
+		self.connect('response', self.callback_response)
+		
+		# Create the Close button
+		self.button_close = gtk.Button(stock=gtk.STOCK_CLOSE)
+		self.button_close.set_sensitive(False)
+		self.button_close.connect('clicked', self.callback_close)
+		self.get_action_area().pack_start(self.button_close, True, False, 0)
+		
+		# Create the TextView
+		self.text_buffer = gtk.TextBuffer()
+		self.text_view = gtk.TextView(self.text_buffer)
+		self.text_view.set_editable(False)
+		self.scroller = gtk.ScrolledWindow()
+		self.scroller.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_ALWAYS)
+		self.scroller.add(self.text_view)
+		self.get_content_area().add(self.scroller)
+	
+	def callback_response(self, widget, data=None):
+		pass
+	
+	def callback_close(self, widget, data=None):
+		self.response(gtk.RESPONSE_REJECT)
+	
+	def callback_grab(self, widget, data=None):
+		result = True
+		try:
+			info = self.generator.next()
+			if info[0] == None:
+				# This is the first time through, fill in some information in the buffer
+				self.text_buffer.set_text('%s\'s last-downloaded file was %s.\n'%(self.webcomic_name, str(info[1])))
+			elif info[0]:
+				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Successfully downloaded strip %s.\n'%str(info[1]))
+			else:
+				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Failed to download strip %s.\n'%str(info[1]))
+		except StopIteration:
+			result = False
+		except Exception as er:
+			self.text_buffer.set_text('Unknown error: %s'%str(er))
+			self.text_buffer.insert(self.text_buffer.get_end_iter(), '\n' + traceback.format_exc())
+			print(er)
+			print(traceback.format_exc())
+			result = False
+		
+		if not result:
+			self.button_close.set_sensitive(True)
+		return result
+	
+	def run(self, name, folder, pattern, skipsafe):
+		# Prep the dialog
+		self.text_buffer.set_text('')
+		self.webcomic_name = name
+		self.webcomic_folder = folder
+		self.webcomic_pattern = pattern
+		self.webcomic_skipsafe = skipsafe
+		
+		# Check whether the strip uses only one image type or several
+		self.webcomic_check_all = (pattern[1] == 'a')
+		
+		if self.webcomic_check_all:
+			print('Checking all image formats.')
+		else:
+			print('Only one image format to download.')
+		
+		# Check whether the strip uses numeric or date-wise numbering
+		if pattern[0] == 'n':
+			self.generator = numeric_download(name, folder, pattern[3:], skipsafe, self.webcomic_check_all)
+		else:
+			print('Datewise webcomic downloading is not yet supported!')
+		
+		# Start a timeout
+		gobject.timeout_add(2000, self.callback_grab, 'grab')
+		
+		self.show_all()
+		gtk.Dialog.run(self)
+		
+		# Shut-down the dialog
+		self.hide()
+
 #
 # Main Window:
 #
-class Downloader(gtk.Window):
+class MainWindow(gtk.Window):
 	def __init__(self):
 		gtk.Window.__init__(self)
 
@@ -309,11 +499,12 @@ class Downloader(gtk.Window):
 		self.add(box)
 
 		# Create the (empty) grid-box
-		self.list_data = gtk.ListStore(gobject.TYPE_INT64, # ID
+		self.list_data = gtk.ListStore(gobject.TYPE_INT64,   # ID
 										gobject.TYPE_STRING, # Name
 										gobject.TYPE_STRING, # Folder
 										gobject.TYPE_STRING, # Pattern
-										gobject.TYPE_STRING) # Date added
+										gobject.TYPE_STRING, # Date added
+										gobject.TYPE_INT64)  # Skipsafe
 
 		self.cell_renderer = gtk.CellRendererText()
 		self.list_view = gtk.TreeView(self.list_data)
@@ -335,6 +526,7 @@ class Downloader(gtk.Window):
 
 	def reload_webcomic_list(self):
 		# Load the list of webcomics into the list
+		self.list_data.clear()
 		webcomics = db_list_webcomics()
 		for comic in webcomics:
 			self.list_data.append(comic)
@@ -346,7 +538,15 @@ class Downloader(gtk.Window):
 			self.reload_webcomic_list()
 
 	def callback_open(self, widget, data):
-		pass
+		(model, pathlist) = self.list_view.get_selection().get_selected_rows()
+		if 0 == len(pathlist):
+			return
+		else:
+			tree_iter = model.get_iter(pathlist[0])
+			ds.run(model.get_value(tree_iter, 1),
+					model.get_value(tree_iter, 2),
+					model.get_value(tree_iter, 3),
+					model.get_value(tree_iter, 5))
 
 	def callback_delete(self, widget, data):
 		(model, pathlist) = self.list_view.get_selection().get_selected_rows()
@@ -354,12 +554,15 @@ class Downloader(gtk.Window):
 			tree_iter = model.get_iter(path)
 			print('Deleting webcomic with ID %d'%(model.get_value(tree_iter, 0)))
 			#db_delete_webcomic(model.get_value(tree_iter, 0))
+		self.reload_webcomic_list()
 
 db_init()
 
-d = Downloader()
-d.show_all()
-a = AddWebcomic()
+mw = MainWindow()
+mw.show_all()
+
+a = AddWebcomic(mw)
+ds = DownloadStrips(mw)
 
 gtk.main()
 
