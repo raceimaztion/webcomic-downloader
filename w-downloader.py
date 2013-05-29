@@ -53,7 +53,7 @@ def wget(url, folder=None):
 	return (result==0)
 
 def grab_strip_by_number(pattern, number, folder=None):
-	return wget(pattern%number, folder)
+	return (wget(pattern%number, folder), get_filename(pattern%number))
 
 def grab_strip_by_date(pattern, date, folder=None):
 	url = pattern
@@ -63,7 +63,7 @@ def grab_strip_by_date(pattern, date, folder=None):
 				('%m', '%02d'%date.month),
 				('%d', '%02d'%date.day)]:
 		url = url.replace(rep[0], rep[1])
-	return wget(url, folder)
+	return (wget(url, folder), get_filename(url))
 
 def get_filename(url):
 	"""Return the name of a file given its URL."""
@@ -99,8 +99,10 @@ def date_get_latest_stored(folder, pattern):
 			break
 	
 	if latest == None:
-		return None
+		print('Found no matching webcomic images!')
+		return False
 	else:
+		# TODO: Parse the filename into a date object
 		pass
 
 #
@@ -161,24 +163,27 @@ def numeric_download(name, folder, pattern, skipsafe, check_all=False):
 	print('Downloading strip images for %s.'%name)
 	print('Last downloaded strip was #%d.'%last)
 	
-	yield (None, last)
+	yield (None, last, get_filename(pattern%last))
 	
 	#test="""
 	number = last + 1
+	filename = ''
 	
 	while skipsafe > 0:
 		if check_all:
 			for format in ALL_IMAGE_TYPES:
 				result = grab_strip_by_number(pattern + format, number, folder)
-				if result:
+				if result[0]:
+					filename = result[1]
 					break
 				else:
 					time.sleep(0.5)
 		else:
 			result = grab_strip_by_number(pattern, number, folder)
-		if not result:
+			filename = result[1]
+		if not result[0]:
 			skipsafe -= 1
-		yield (result, number)
+		yield (result[0], number, filename)
 		number += 1
 	#"""
 
@@ -387,6 +392,11 @@ class DownloadStrips(gtk.Dialog):
 		gtk.Dialog.__init__(self, 'Webcomic Downloader - Downloading strips', parent, gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT)
 		self.connect('response', self.callback_response)
 		
+		# Create the Stop button
+		self.button_stop = gtk.Button(stock=gtk.STOCK_STOP)
+		self.button_stop.connect('clicked', self.callback_stop)
+		self.get_action_area().pack_start(self.button_stop, True, False, 0)
+		
 		# Create the Close button
 		self.button_close = gtk.Button(stock=gtk.STOCK_CLOSE)
 		self.button_close.set_sensitive(False)
@@ -401,24 +411,30 @@ class DownloadStrips(gtk.Dialog):
 		self.scroller.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_ALWAYS)
 		self.scroller.add(self.text_view)
 		self.get_content_area().add(self.scroller)
+		
+		self.running = True
 	
 	def callback_response(self, widget, data=None):
+		pass
+	
+	def callback_stop(self, widget, data=None):
+		self.running = False
 		pass
 	
 	def callback_close(self, widget, data=None):
 		self.response(gtk.RESPONSE_REJECT)
 	
 	def callback_grab(self, widget, data=None):
-		result = True
+		result = self.running
 		try:
 			info = self.generator.next()
 			if info[0] == None:
 				# This is the first time through, fill in some information in the buffer
 				self.text_buffer.set_text('%s\'s last-downloaded file was %s.\n'%(self.webcomic_name, str(info[1])))
 			elif info[0]:
-				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Successfully downloaded strip %s.\n'%str(info[1]))
+				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Successfully downloaded strip %s.\n'%info[2])
 			else:
-				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Failed to download strip %s.\n'%str(info[1]))
+				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Failed to download strip %s.\n'%info[2])
 		except StopIteration:
 			result = False
 		except Exception as er:
@@ -430,6 +446,7 @@ class DownloadStrips(gtk.Dialog):
 		
 		if not result:
 			self.button_close.set_sensitive(True)
+			self.button_stop.set_sensitive(False)
 		return result
 	
 	def run(self, name, folder, pattern, skipsafe):
@@ -453,6 +470,11 @@ class DownloadStrips(gtk.Dialog):
 			self.generator = numeric_download(name, folder, pattern[3:], skipsafe, self.webcomic_check_all)
 		else:
 			print('Datewise webcomic downloading is not yet supported!')
+			#self.generator = datewise_download(name, folder, pattern[3:], skipsafe, self.webcomic_check_all)
+		
+		running = True
+		self.button_close.set_sensitive(False)
+		self.button_stop.set_sensitive(True)
 		
 		# Start a timeout
 		gobject.timeout_add(2000, self.callback_grab, 'grab')
