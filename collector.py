@@ -18,14 +18,20 @@ Stuff to do:
 # Comic-grabbing functions:
 #
 
-def wget(url, folder=None):
+def wget(url, folder=None, referer=None):
 	"""wget(url, folder=None)
 	Given the URL (and optionally, the folder to put it in), download the given URL.
 	Returns True if the operation was successful, False otherwise."""
 	if folder == None:
-		result = os.system('wget "%s"'%url)
+		if referer == None:
+			result = os.system('wget -nc "%s"'%url)
+		else:
+			result = os.system('wget -nc --referer="%s" "%s"'%(referer, url))
 	else:
-		result = os.system('wget -P "%s" "%s"'%(folder, url))
+		if referer == None:
+			result = os.system('wget -nc -P "%s" "%s"'%(folder, url))
+		else:
+			result = os.system('wget -nc -P "%s" --referer="%s" "%s"'%(folder, referer, url))
 	return (result==0)
 
 def grab_page(url):
@@ -77,41 +83,57 @@ def get_strip_images(html):
 	results = []
 	for tag in result:
 		results.extend(tag.findAll('img'))
-	return [tag.get('src') for tag in results]
+	return list(set([tag.get('src') for tag in results]))
 
 def matches_next(tag):
 	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['next', 'tomorrow']]
 	# If it's an <A> tag with a string as its only child:
-	if tag.name == 'a' and tag.string != None:
+	if tag.name != 'a':
+		return False
+	
+	if tag.string != None:
 		for m in MATCHERS:
 			if m.match(tag.string) != None:
-				return tag.get('href')
+				return True
 	
 	# Look for an <IMG> tag's TITLE attribute
 	for m in MATCHERS:
 		for t in tag.findAll('img', title=m):
-			return tag.get('href')
+			return True
 		for t in tag.findAll('img', alt=m):
-			return tag.get('href')
+			return True
 	
-	return None
+	return False
 
 def matches_previous(tag):
 	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['prev', 'yesterday', 'back']]
 	# If it's an <A> tag with a string as its only child:
-	if tag.name == 'a' and tag.string != None:
+	if tag.name != 'a':
+		return False
+	
+	if tag.string != None:
 		for m in MATCHERS:
 			if m.match(tag.string) != None:
-				return tag.get('href')
+				return True
 	
 	# Look for an <IMG> tag's TITLE attribute
 	for m in MATCHERS:
 		for t in tag.findAll('img', title=m):
-			return tag.get('href')
+			return True
 		for t in tag.findAll('img', alt=m):
-			return tag.get('href')
+			return True
 	
-	return None
+	return False
+
+def matches_strip(tag):
+	MATCHES = re.compile('comic|strip|comic[-_]strip', re.IGNORECASE)
+	if not tag.name in ['img', 'div']:
+		return False
+	
+	if MATCHES.match(tag.getattr('id')) or MATCHES.match(tag.getattr('class')):
+		return True
+	
+	return False
 
 def absolute_url(page_url, relative_url):
 	if page_url == None:
@@ -139,10 +161,13 @@ def strip_downloader(folder, first_page_url):
 			yield (page_html, page_url, None)
 			return
 		page_images = absolute_url(page_url, get_strip_images(page_html))
-		yield (200, page_url, page_images)
+		
 		# Download all the images
 		for image in page_images:
-			wget(image, folder)
+			wget(image, folder=folder, referer=page_url)
 		next_page_url = absolute_url(page_url, get_next(page_html))
+		
+		# Pass out a list of the current page URL and the image URLs for the page
+		yield (200, page_url, page_images)
 	
 	return
