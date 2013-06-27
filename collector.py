@@ -35,11 +35,16 @@ def wget(url, folder=None, referer=None):
 	return (result==0)
 
 def grab_page(url):
-	result = urllib2.urlopen(url)
-	if result.getcode() == 200:
-		return BeautifulSoup(result.read())
-	else:
-		return result.getcode()
+	while True:
+		try:
+			result = urllib2.urlopen(url)
+			if result.getcode() == 200:
+				return BeautifulSoup(result.read())
+			else:
+				return result.getcode()
+		except:
+			# Catch connection reset errors
+			continue
 
 def get_filename(url):
 	"""Return the name of a file given its URL."""
@@ -79,10 +84,15 @@ def get_previous(html):
 
 def get_strip_images(html):
 	"""Given the BeautifulSoup source of a page, return the URL(s) for the page's strip images."""
-	result = html.findAll('div', class_=re.compile('strip|comic', re.IGNORECASE))
+	matcher = re.compile('(.*[^a-zA-Z])?(strip|comic)([^a-zA-Z].*)?', re.IGNORECASE)
+	result = html.findAll('div', class_=matcher)
 	results = []
 	for tag in result:
 		results.extend(tag.findAll('img'))
+	result = html.findAll('div', id=matcher)
+	for tag in result:
+		results.extend(tag.findAll('img'))
+	results.extend(html.findAll('img', alt=matcher))
 	return list(set([tag.get('src') for tag in results]))
 
 def matches_next(tag):
