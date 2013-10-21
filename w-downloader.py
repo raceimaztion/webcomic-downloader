@@ -129,6 +129,11 @@ def numeric_get_latest_stored(folder, pattern, check_all_formats=False):
 	file_list = os.listdir(folder)
 	file_list.sort(reverse=True)
 	
+	print('found %d files in folder %s'%(len(file_list), folder))
+	if len(file_list) < 5:
+		for f in file_list:
+			print('\t%s'%f)
+	
 	latest = None
 	for f in file_list:
 		if check_all_formats:
@@ -139,8 +144,10 @@ def numeric_get_latest_stored(folder, pattern, check_all_formats=False):
 			if latest != None:
 				break
 		else:
+			print('testing "%s" against file "%s"...'%(name_re, f))
 			if None != re.match(name_re, f):
 				latest = f
+				print('\tMatched! breaking...')
 				break
 	
 	if latest == None:
@@ -156,7 +163,8 @@ def numeric_download(name, folder, pattern, skipsafe, check_all=False):
 	"""Given the Webcomic data, grab the webcomic images sequentially.
 		Yields after each download attempt returning (was_success, strip_number) for each."""
 	last = numeric_get_latest_stored(folder, pattern, check_all)
-	if last == False:
+	target_skipsafe = skipsafe
+	if type(last) == type(False) and last == False:
 		yield (None, 'Failed to find any strips matching the given pattern!')
 		return
 	
@@ -183,6 +191,8 @@ def numeric_download(name, folder, pattern, skipsafe, check_all=False):
 			filename = result[1]
 		if not result[0]:
 			skipsafe -= 1
+		else:
+			skipsafe = target_skipsafe
 		yield (result[0], number, filename)
 		number += 1
 	#"""
@@ -382,6 +392,16 @@ class AddWebcomic(gtk.Dialog):
 		self.hide()
 		
 		return result
+	
+	def edit(self, webcomic_id):
+		# Edit a webcomic's information
+		# Load the data
+		
+		
+		# Do clean-up
+		self.hide()
+		
+		return result
 
 #
 # Strip download dialog
@@ -424,6 +444,13 @@ class DownloadStrips(gtk.Dialog):
 	def callback_close(self, widget, data=None):
 		self.response(gtk.RESPONSE_REJECT)
 	
+	def scroll_to_end(self):
+		# Scroll to the end of the list
+		adj = self.scroller.get_vadjustment()
+		if adj.upper < adj.page_size:
+			return
+		adj.set_value(adj.upper - adj.page_size)
+	
 	def callback_grab(self, widget, data=None):
 		result = self.running
 		try:
@@ -433,8 +460,10 @@ class DownloadStrips(gtk.Dialog):
 				self.text_buffer.set_text('%s\'s last-downloaded file was %s.\n'%(self.webcomic_name, str(info[1])))
 			elif info[0]:
 				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Successfully downloaded strip %s.\n'%info[2])
+				self.scroll_to_end()
 			else:
 				self.text_buffer.insert(self.text_buffer.get_end_iter(), 'Failed to download strip %s.\n'%info[2])
+				self.scroll_to_end()
 		except StopIteration:
 			result = False
 		except Exception as er:
@@ -575,7 +604,7 @@ class MainWindow(gtk.Window):
 		for path in pathlist:
 			tree_iter = model.get_iter(path)
 			print('Deleting webcomic with ID %d'%(model.get_value(tree_iter, 0)))
-			#db_delete_webcomic(model.get_value(tree_iter, 0))
+			db_delete_webcomic(model.get_value(tree_iter, 0))
 		self.reload_webcomic_list()
 
 db_init()
