@@ -24,14 +24,14 @@ def wget(url, folder=None, referer=None):
 	Returns True if the operation was successful, False otherwise."""
 	if folder == None:
 		if referer == None:
-			result = os.system('wget -nc "%s"'%url)
+			result = os.system('wget -nc --load-cookies cookies.txt "%s"'%url)
 		else:
-			result = os.system('wget -nc --referer="%s" "%s"'%(referer, url))
+			result = os.system('wget -nc --load-cookies cookies.txt --referer="%s" "%s"'%(referer, url))
 	else:
 		if referer == None:
-			result = os.system('wget -nc -P "%s" "%s"'%(folder, url))
+			result = os.system('wget -nc --load-cookies cookies.txt -P "%s" "%s"'%(folder, url))
 		else:
-			result = os.system('wget -nc -P "%s" --referer="%s" "%s"'%(folder, referer, url))
+			result = os.system('wget -nc --load-cookies cookies.txt -P "%s" --referer="%s" "%s"'%(folder, referer, url))
 	return (result==0)
 
 def grab_page(url):
@@ -165,6 +165,9 @@ def absolute_url(page_url, relative_url):
 def strip_downloader(folder, first_page_url):
 	next_page_url = first_page_url
 	page_url = ''
+	
+	# Bit of a hack, but grab the page via WGET and save the cookies given
+	#os.system('wget --quiet --save-cookies cookies.txt --keep-session-cookies -O /dev/null "%s"'%first_page_url)
 	
 	while next_page_url != None and next_page_url != page_url:
 		page_url = next_page_url
