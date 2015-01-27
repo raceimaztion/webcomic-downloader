@@ -96,7 +96,7 @@ def get_strip_images(html):
 	return list(set([tag.get('src') for tag in results]))
 
 def matches_next(tag):
-	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['next', 'tomorrow']]
+	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['next', 'tomorrow', 'ensuing']]
 	# If it's an <A> tag with a string as its only child:
 	if tag.name != 'a':
 		return False
@@ -116,7 +116,7 @@ def matches_next(tag):
 	return False
 
 def matches_previous(tag):
-	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['prev', 'yesterday', 'back']]
+	MATCHERS = [re.compile(a, re.IGNORECASE) for a in ['prev', 'yesterday', 'prior', 'back']]
 	# If it's an <A> tag with a string as its only child:
 	if tag.name != 'a':
 		return False
@@ -181,3 +181,4 @@ def strip_downloader(folder, first_page_url):
 		yield (200, page_url, page_images)
 	
 	return
+

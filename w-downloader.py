@@ -501,7 +501,7 @@ class DownloadStrips(gtk.Dialog):
 			print('Datewise webcomic downloading is not yet supported!')
 			#self.generator = datewise_download(name, folder, pattern[3:], skipsafe, self.webcomic_check_all)
 		
-		running = True
+		self.running = True
 		self.button_close.set_sensitive(False)
 		self.button_stop.set_sensitive(True)
 		
