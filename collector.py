@@ -35,13 +35,16 @@ def wget(url, folder=None, referer=None):
 	return (result==0)
 
 def grab_page(url):
+	"""grap_page(url)
+	Attempts an HTTP request to download the URL given and parse it with BeautifulSoup.
+	Returns (http_result_code, BeautifulSoup object). The second value is None if the code isn't 200."""
 	while True:
 		try:
 			result = urllib2.urlopen(url)
 			if result.getcode() == 200:
-				return BeautifulSoup(result.read())
+				return result.getcode(), BeautifulSoup(result.read())
 			else:
-				return result.getcode()
+				return result.getcode(), None
 		except:
 			# Catch connection reset errors
 			continue
@@ -165,10 +168,10 @@ def strip_downloader(folder, first_page_url):
 	
 	while next_page_url != None and next_page_url != page_url:
 		page_url = next_page_url
-		page_html = grab_page(page_url)
-		if type(page_html) == int:
-			print('Failed to download URL: %s\nError code was: %d'%(first_pag_url, page_html))
-			yield (page_html, page_url, None)
+		result_code, page_html = grab_page(page_url)
+		if result_code != 200:
+			print('Failed to download URL: %s\nError code was: %d'%(first_pag_url, result_code))
+			yield (result_code, page_url, None)
 			return
 		page_images = absolute_url(page_url, get_strip_images(page_html))
 		
@@ -181,3 +184,5 @@ def strip_downloader(folder, first_page_url):
 		yield (200, page_url, page_images)
 	
 	return
+	# end strip_downloader()
+
