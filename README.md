@@ -8,7 +8,7 @@ Its end goal is to allow the user to list a bunch of webcomics and have the prog
 Note that this will require great intelligence on the part of the detection algorithm.
 
 Notes, as of January 28, 2015:
-==============================
+------------------------------
 
 I am in the process of rewriting the front-end code to use Python 3 and GTK 3. The goal is to make it extremely flexible and powerful, but still relatively easy to use.
 
